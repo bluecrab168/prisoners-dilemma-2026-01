@@ -1,0 +1,32 @@
+name: Player Submission
+description: Submit your Prisoner's Dilemma Player class code for the tournament.
+title: "[Player]: <Your Player Name>"
+labels: ["submission"]
+assignees: []
+body:
+  - type: textarea
+    id: player_code
+    attributes:
+      label: Paste your Player class
+      description: |
+        Paste a complete Python class that subclasses `axelrod.Player` and implements
+        `strategy(self, opponent)`.
+        
+        Tips:
+        - Include imports your class needs.
+        - Ensure the class has a `name` attribute for display in results.
+        - Use triple backticks to format as code.
+      placeholder: |
+        ```python
+        from axelrod import Player, Action
+
+        class MyPlayer(Player):
+            """List the names of all students who worked in this docstring"""
+            name = "My Unique Player Name"
+
+            def strategy(self, opponent):
+                """Simple Example strategy: always cooperate"""
+                return Action.C
+        ```
+    validations:
+      required: true

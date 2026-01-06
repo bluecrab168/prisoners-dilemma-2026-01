@@ -1,0 +1,120 @@
+name: Handle Player Submission
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write       # allow committing/PR creation
+  pull-requests: write  # allow opening/updating PRs
+  issues: write         # keep to post results back on the issue
+
+jobs:
+  process:
+    if: contains(toJson(github.event.issue.labels), 'submission')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository (default branch)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install package (editable) and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Extract code, write player file, and validate
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python .github/scripts/handle_submission.py --event "$GITHUB_EVENT_PATH" --out-comment comment.md
+
+      - name: Determine validation result
+        id: verdict
+        run: |
+          if grep -q "^### ✅ Overall: PASS" comment.md; then
+            echo "pass=true" >> $GITHUB_OUTPUT
+          else
+            echo "pass=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build players registry (include new class)
+        if: steps.verdict.outputs.pass == 'true'
+        run: |
+          python -m tournament.scripts.build_registry --verbose || true
+
+      - name: Set submissions branch name
+        if: steps.verdict.outputs.pass == 'true'
+        id: set_branch
+        run: |
+          echo "BRANCH=submissions/${{ github.event.issue.user.login }}-${{ github.event.issue.number }}" >> $GITHUB_ENV
+          echo "branch=submissions/${{ github.event.issue.user.login }}-${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+
+
+      - name: Create Pull Request with new player
+        if: steps.verdict.outputs.pass == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        continue-on-error: true
+        with:
+          # Only include player modules and the generated registry in the PR
+          add-paths: |
+            tournament/players/*.py
+            tournament/players/_registry.py
+          title: |
+            Add player from issue #${{ github.event.issue.number }} by @${{ github.event.issue.user.login }}
+          body: |
+            This PR was automatically generated from issue #${{ github.event.issue.number }}.
+            The submission passed basic validation. See the issue for details.
+
+            Closes #${{ github.event.issue.number }}
+          commit-message: |
+            Add player from issue #${{ github.event.issue.number }} by @${{ github.event.issue.user.login }}
+
+            Closes #${{ github.event.issue.number }}
+          branch: ${{ env.BRANCH }}
+          base: ${{ github.event.repository.default_branch }}
+          labels: |
+            submission
+            automated
+
+      - name: Post result comment to the issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'comment.md';
+            let body = '';
+            try {
+              body = fs.readFileSync(path, 'utf8');
+            } catch (e) {
+              body = 'Automation error: could not create a result comment. Please check workflow logs.';
+            }
+            const prNumber = '${{ steps.cpr.outputs.pull-request-number }}';
+            if (prNumber) {
+              body += `\n\nPR created: #${prNumber}`;
+            } else {
+              // Fallback: PR creation blocked. Provide manual PR link for the pushed branch
+              const branch = process.env.BRANCH || '';
+              if (branch) {
+                const base = '${{ github.event.repository.default_branch }}';
+                const title = `Add player from issue #${context.issue.number} by @${context.actor}`;
+                const prBody = `Closes #${context.issue.number}`;
+                const url = `https://github.com/${context.repo.owner}/${context.repo.repo}/compare/${base}...${branch}?quick_pull=1&title=${encodeURIComponent(title)}&body=${encodeURIComponent(prBody)}`;
+                body += `\n\nNote: This repository currently prevents PR creation by GitHub Actions.\nA branch was pushed: ${branch}\nOpen a PR manually: ${url}`;
+              }
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

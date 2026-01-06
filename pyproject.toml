@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prisoners-dilemma"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "Axelrod",
+    "notebook>=7.5.1",
+]
+
+[tool.setuptools]
+# Pin packages explicitly to avoid auto-discovery of top-level directories like 'notebooks'
+packages = ["tournament"]
+# Explicitly state flat layout (project root)
+package-dir = {"" = "."}
